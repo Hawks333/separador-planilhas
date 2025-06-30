@@ -25,12 +25,25 @@ if uploaded_file:
         st.write(df.head())
 
         if st.button("🚀 Separar e baixar arquivos"):
+            # Cria uma coluna temporária com os valores normalizados (tudo em minúsculo)
+            df['temp_normalized'] = df[coluna_A].str.strip().str.lower()
+            
             # Cria os arquivos em memória
             zip_buffer = BytesIO()
             with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-                for valor in df[coluna_A].dropna().unique():
-                    df_filtrado = df[df[coluna_A] == valor]
-                    nome_arquivo = str(valor).strip().replace('/', '_').replace('\\', '_').replace(':', '-')
+                # Agrupa pelos valores normalizados
+                for valor_normalizado in df['temp_normalized'].dropna().unique():
+                    # Pega o primeiro valor original (para manter a formatação original no arquivo)
+                    valor_original = df.loc[df['temp_normalized'] == valor_normalizado, coluna_A].iloc[0]
+                    
+                    # Filtra o dataframe
+                    df_filtrado = df[df['temp_normalized'] == valor_normalizado]
+                    
+                    # Remove a coluna temporária antes de salvar
+                    df_filtrado = df_filtrado.drop(columns=['temp_normalized'])
+                    
+                    # Cria nome do arquivo
+                    nome_arquivo = str(valor_original).strip().replace('/', '_').replace('\\', '_').replace(':', '-')
                     excel_bytes = BytesIO()
                     df_filtrado.to_excel(excel_bytes, index=False, engine='openpyxl')
                     excel_bytes.seek(0)
