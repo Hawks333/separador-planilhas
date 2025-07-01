@@ -89,9 +89,14 @@ if uploaded_file:
                     mime="application/zip"
                 )
 
-            except Exception as e:
-                st.error(f"Erro ao tentar manter a formatação: {e}")
-                st.info("Você pode tentar a alternativa abaixo para baixar os arquivos sem formatação.")
+             except Exception:
+              st.error("❌ **Erro ao processar o arquivo com formatação.**\n\n"
+             "Parece que o arquivo contém fórmulas ocultas, colunas corrompidas ou foi gerado por um sistema que não segue o padrão Excel.\n\n"
+             "🛠 **Como resolver:**\n"
+             "1. Abra o arquivo no **Microsoft Excel**.\n"
+             "2. Vá em **'Salvar como'** e escolha o formato `.xlsx`.\n"
+             "3. Reenvie o arquivo aqui.\n\n"
+             "Se preferir, use a opção abaixo para baixar os arquivos **sem formatação**.")
 
         # Botão alternativo (sem formatação)
         if st.button("📁 Separar e baixar arquivos sem formatação (alternativa)"):
