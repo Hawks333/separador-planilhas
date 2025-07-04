@@ -47,24 +47,20 @@ if uploaded_file:
                 wb_original = load_workbook(file_bytes)
                 ws_original = wb_original.active
 
-# Leitura segura de cabeçalho com openpyxl
-colunas_openpyxl = []
-for col in range(1, ws_original.max_column + 1):
-    val = ws_original.cell(row=1, column=col).value
-    colunas_openpyxl.append(str(val).strip().lower() if val is not None else "")
+                # Leitura segura de cabeçalho com openpyxl
+                colunas_openpyxl = []
+                for col in range(1, ws_original.max_column + 1):
+                    val = ws_original.cell(row=1, column=col).value
+                    colunas_openpyxl.append(str(val).strip().lower() if val is not None else "")
 
-# Mostra as colunas para debug
-st.write("🧪 Cabeçalhos detectados pela planilha:", colunas_openpyxl)
+                # Normaliza a escolha do usuário (vinda do pandas)
+                coluna_normalizada = str(coluna_separadora).strip().lower()
 
-# Normaliza a escolha do usuário (vinda do pandas)
-coluna_normalizada = str(coluna_separadora).strip().lower()
+                if coluna_normalizada not in colunas_openpyxl:
+                    st.error(f"❌ A coluna **{coluna_separadora}** não foi localizada na planilha.\nVerifique se há espaços invisíveis, acentos ou diferenças de nome.")
+                    st.stop()
 
-if coluna_normalizada not in colunas_openpyxl:
-    st.error(f"❌ A coluna **{coluna_separadora}** não foi localizada na planilha.\nVerifique se há espaços invisíveis, acentos ou diferenças de nome.")
-    st.stop()
-
-idx_coluna_sep = colunas_openpyxl.index(coluna_normalizada) + 1
-
+                idx_coluna_sep = colunas_openpyxl.index(coluna_normalizada) + 1
 
                 dados_por_valor = {}
                 for row in ws_original.iter_rows(min_row=2, values_only=False):
