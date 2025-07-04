@@ -3,6 +3,7 @@ import pandas as pd
 import zipfile
 from io import BytesIO
 from openpyxl import load_workbook, Workbook
+from copy import copy
 
 st.set_page_config(page_title="Separador de Planilhas com Formatação", layout="centered")
 
@@ -59,13 +60,20 @@ if uploaded_file:
                         wb_novo = Workbook()
                         ws_novo = wb_novo.active
 
+                        # Copia cabeçalhos com estilo
                         for col_idx, cell in enumerate(ws_original[1], start=1):
                             if cell.value is None:
                                 continue
                             novo_cell = ws_novo.cell(row=1, column=col_idx, value=cell.value)
                             if cell.has_style:
-                                novo_cell._style = cell._style
+                                novo_cell.font = copy(cell.font)
+                                novo_cell.fill = copy(cell.fill)
+                                novo_cell.border = copy(cell.border)
+                                novo_cell.alignment = copy(cell.alignment)
+                                novo_cell.number_format = copy(cell.number_format)
+                                novo_cell.protection = copy(cell.protection)
 
+                        # Copia os dados com estilo
                         for row_idx, row in enumerate(linhas, start=2):
                             for col_idx, cell in enumerate(row, start=1):
                                 header = ws_original.cell(row=1, column=col_idx).value
@@ -73,7 +81,12 @@ if uploaded_file:
                                     continue
                                 novo_cell = ws_novo.cell(row=row_idx, column=col_idx, value=cell.value)
                                 if cell.has_style:
-                                    novo_cell._style = cell._style
+                                    novo_cell.font = copy(cell.font)
+                                    novo_cell.fill = copy(cell.fill)
+                                    novo_cell.border = copy(cell.border)
+                                    novo_cell.alignment = copy(cell.alignment)
+                                    novo_cell.number_format = copy(cell.number_format)
+                                    novo_cell.protection = copy(cell.protection)
 
                         nome_arquivo = f"{chave}.xlsx".replace("/", "_").replace("\\", "_").replace(":", "-")
                         excel_bytes = BytesIO()
