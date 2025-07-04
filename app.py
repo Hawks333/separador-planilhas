@@ -19,8 +19,12 @@ uploaded_file = st.file_uploader("📁 Envie seu arquivo .xlsx", type=["xlsx"])
 
 if uploaded_file:
     try:
-        # Pré-visualização com pandas
-        df_preview = pd.read_excel(uploaded_file, nrows=5)
+        # ✅ Carrega uma vez o conteúdo do arquivo
+        file_bytes = BytesIO(uploaded_file.read())
+        file_bytes.seek(0)
+
+        # ✅ Usa esse buffer para o preview com pandas
+        df_preview = pd.read_excel(file_bytes, nrows=5)
         df_preview = df_preview.dropna(axis=1, how="all")
         df_preview = df_preview.loc[:, ~df_preview.columns.str.contains('^Unnamed')]
 
@@ -37,8 +41,8 @@ if uploaded_file:
         # Botão principal (com formatação)
         if st.button("✨ Separar e baixar arquivos com formatação"):
             try:
-                input_excel = BytesIO(uploaded_file.read())
-                wb_original = load_workbook(input_excel)
+                file_bytes.seek(0)  # ✅ Reposiciona ponteiro antes de usar novamente
+                wb_original = load_workbook(file_bytes)
                 ws_original = wb_original.active
 
                 colunas = [cell.value for cell in ws_original[1]]
@@ -96,7 +100,8 @@ if uploaded_file:
         # Botão alternativo (sem formatação)
         if st.button("📁 Separar e baixar arquivos sem formatação (alternativa)"):
             try:
-                df = pd.read_excel(uploaded_file)
+                file_bytes.seek(0)
+                df = pd.read_excel(file_bytes)
 
                 df = df.dropna(axis=1, how="all")
                 df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
