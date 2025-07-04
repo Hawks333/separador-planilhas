@@ -6,28 +6,29 @@ from openpyxl import load_workbook, Workbook
 from copy import copy
 
 st.set_page_config(page_title="Separador de Planilhas com Formatação", layout="centered")
-
 st.title("📊 Separador de Planilha com ou sem Formatação")
 
 st.markdown("""
 Envie um arquivo Excel `.xlsx` com a **primeira linha como cabeçalho** e selecione a coluna para separar os dados.
 
-- Os arquivos separados manterão a **formatação visual original** (cores, bordas, estilos) se possível.
-- Se o arquivo estiver corrompido, você poderá optar por baixar os arquivos **sem formatação**.
+- Os arquivos separados manterão a **formatação visual original** (cores, bordas, estilos).
+- Fórmulas serão convertidas em **valores fixos** — evitando nomes estranhos de arquivo e linhas vazias.
+- Se algo falhar, há um segundo botão para baixar **sem formatação**.
 """)
 
 uploaded_file = st.file_uploader("📁 Envie seu arquivo .xlsx", type=["xlsx"])
 
 if uploaded_file:
     try:
-        # Lê o arquivo apenas uma vez e armazena em memória
-        arquivo_bytes = BytesIO(uploaded_file.read())
-        arquivo_bytes.seek(0)
+        # Carrega o binário UMA única vez
+        raw_bytes = BytesIO(uploaded_file.read())
+        raw_bytes.seek(0)
 
-        # Pré-visualização com pandas
-        df_preview = pd.read_excel(arquivo_bytes, nrows=5)
-        df_preview = df_preview.dropna(axis=1, how="all")
-        df_preview = df_preview.loc[:, ~df_preview.columns.str.contains('^Unnamed')]
+        # Pré‑visualização (pandas sempre lê valores, não fórmulas)
+        df_preview = pd.read_excel(raw_bytes, nrows=5)
+        df_preview = (df_preview
+                      .dropna(axis=1, how="all")
+                      .loc[:, ~df_preview.columns.str.contains('^Unnamed')])
 
         coluna_separadora = st.selectbox(
             "Selecione a coluna para separar os arquivos:",
@@ -35,114 +36,137 @@ if uploaded_file:
             index=0
         )
 
-        st.success(f"Arquivo carregado com sucesso! Coluna selecionada: **{coluna_separadora}**")
-        st.write("Visualização da planilha (5 primeiras linhas):")
+        st.success(f"Arquivo carregado. Coluna selecionada: **{coluna_separadora}**")
+        st.write("Visualização (5 primeiras linhas):")
         st.write(df_preview)
 
-        # Botão principal (com formatação)
-        if st.button("✨ Separar e baixar arquivos com formatação"):
+        # ------------------------------------------------------------------ #
+        # 1) Botão principal – manter formatação & converter fórmulas em valores
+        # ------------------------------------------------------------------ #
+        if st.button("✨ Separar e baixar COM formatação"):
             try:
-                arquivo_bytes.seek(0)  # Garante que o ponteiro esteja no início
-                wb_original = load_workbook(arquivo_bytes)
-                ws_original = wb_original.active
+                # Precisamos de duas cópias independentes do buffer
+                buf_fmt  = BytesIO(raw_bytes.getvalue()); buf_fmt.seek(0)
+                buf_vals = BytesIO(raw_bytes.getvalue()); buf_vals.seek(0)
 
-                colunas = [cell.value for cell in ws_original[1]]
-                idx_coluna_sep = colunas.index(coluna_separadora) + 1
+                wb_fmt  = load_workbook(buf_fmt,  data_only=False)  # estilos + fórmulas
+                wb_vals = load_workbook(buf_vals, data_only=True)   # apenas valores
+                ws_fmt  = wb_fmt.active
+                ws_vals = wb_vals.active
 
-                dados_por_valor = {}
-                for row in ws_original.iter_rows(min_row=2, values_only=False):
-                    valor = row[idx_coluna_sep - 1].value
-                    if valor:
-                        chave = str(valor).strip().lower()
-                        if chave not in dados_por_valor:
-                            dados_por_valor[chave] = []
-                        dados_por_valor[chave].append(row)
+                # Índice da coluna separadora
+                headers = [c.value for c in ws_fmt[1]]
+                idx_sep = headers.index(coluna_separadora) + 1  # 1‑based
 
+                # Agrupa linhas por valor (já sem fórmulas)
+                grupos = {}
+                for r_fmt, r_val in zip(ws_fmt.iter_rows(min_row=2, values_only=False),
+                                        ws_vals.iter_rows(min_row=2, values_only=False)):
+                    chave = r_val[idx_sep-1].value
+                    if chave is None or str(chave).strip() == "":
+                        continue
+                    chave_norm = str(chave).strip().lower()
+                    grupos.setdefault(chave_norm, []).append((r_fmt, r_val, chave))
+
+                # Cria ZIP
                 zip_buffer = BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-                    for chave, linhas in dados_por_valor.items():
-                        wb_novo = Workbook()
-                        ws_novo = wb_novo.active
+                    for chave_norm, linhas in grupos.items():
+                        # Usa o valor original (primeira ocorrência) para o nome
+                        nome_arquivo = str(linhas[0][2]).strip()
+                        nome_arquivo = (nome_arquivo
+                                        .replace("/", "_")
+                                        .replace("\\", "_")
+                                        .replace(":", "-"))
+                        if not nome_arquivo:
+                            nome_arquivo = "vazio"
 
-                        # Copia cabeçalhos com estilo
-                        for col_idx, cell in enumerate(ws_original[1], start=1):
-                            if cell.value is None:
+                        wb_new = Workbook()
+                        ws_new = wb_new.active
+
+                        # --- Cabeçalhos ---
+                        for c_idx, (c_fmt, c_val) in enumerate(zip(ws_fmt[1], ws_vals[1]), start=1):
+                            if c_fmt.value is None:
                                 continue
-                            novo_cell = ws_novo.cell(row=1, column=col_idx, value=cell.value)
-                            if cell.has_style:
-                                novo_cell.font = copy(cell.font)
-                                novo_cell.fill = copy(cell.fill)
-                                novo_cell.border = copy(cell.border)
-                                novo_cell.alignment = copy(cell.alignment)
-                                novo_cell.number_format = copy(cell.number_format)
-                                novo_cell.protection = copy(cell.protection)
+                            tgt = ws_new.cell(row=1, column=c_idx, value=c_fmt.value)
+                            if c_fmt.has_style:
+                                tgt.font       = copy(c_fmt.font)
+                                tgt.fill       = copy(c_fmt.fill)
+                                tgt.border     = copy(c_fmt.border)
+                                tgt.alignment  = copy(c_fmt.alignment)
+                                tgt.number_format = copy(c_fmt.number_format)
 
-                        # Copia os dados com estilo
-                        for row_idx, row in enumerate(linhas, start=2):
-                            for col_idx, cell in enumerate(row, start=1):
-                                header = ws_original.cell(row=1, column=col_idx).value
-                                if header is None:
+                        # --- Linhas de dados ---
+                        for r_idx, (row_fmt, row_val, _) in enumerate(linhas, start=2):
+                            for c_idx, (cell_fmt, cell_val) in enumerate(zip(row_fmt, row_val), start=1):
+                                # pula colunas vazias no cabeçalho
+                                if ws_fmt.cell(row=1, column=c_idx).value is None:
                                     continue
-                                novo_cell = ws_novo.cell(row=row_idx, column=col_idx, value=cell.value)
-                                if cell.has_style:
-                                    novo_cell.font = copy(cell.font)
-                                    novo_cell.fill = copy(cell.fill)
-                                    novo_cell.border = copy(cell.border)
-                                    novo_cell.alignment = copy(cell.alignment)
-                                    novo_cell.number_format = copy(cell.number_format)
-                                    novo_cell.protection = copy(cell.protection)
+                                tgt = ws_new.cell(row=r_idx, column=c_idx, value=cell_val.value)
+                                if cell_fmt.has_style:
+                                    tgt.font       = copy(cell_fmt.font)
+                                    tgt.fill       = copy(cell_fmt.fill)
+                                    tgt.border     = copy(cell_fmt.border)
+                                    tgt.alignment  = copy(cell_fmt.alignment)
+                                    tgt.number_format = copy(cell_fmt.number_format)
 
-                        nome_arquivo = f"{chave}.xlsx".replace("/", "_").replace("\\", "_").replace(":", "-")
-                        excel_bytes = BytesIO()
-                        wb_novo.save(excel_bytes)
-                        excel_bytes.seek(0)
-                        zip_file.writestr(nome_arquivo, excel_bytes.read())
+                        # Salva no ZIP
+                        bytes_out = BytesIO()
+                        wb_new.save(bytes_out)
+                        bytes_out.seek(0)
+                        zip_file.writestr(f"{nome_arquivo}.xlsx", bytes_out.read())
 
                 zip_buffer.seek(0)
                 st.download_button(
-                    label="📥 Baixar arquivos separados com formatação (.zip)",
+                    "📥 Baixar arquivos separados COM formatação (.zip)",
                     data=zip_buffer,
                     file_name="planilhas_formatadas.zip",
                     mime="application/zip"
                 )
 
             except Exception as e:
-                st.error(f"Erro ao tentar manter a formatação: {e}")
-                st.info("Você pode tentar a alternativa abaixo para baixar os arquivos sem formatação.")
+                st.error(f"Erro ao manter formatação/valores: {e}")
+                st.info("Tente o botão alternativo abaixo para baixar sem formatação.")
 
-        # Botão alternativo (sem formatação)
-        if st.button("📁 Separar e baixar arquivos sem formatação (alternativa)"):
+        # ------------------------------------------------------------------ #
+        # 2) Botão alternativo – sem formatação (mais rápido, à prova de erro)
+        # ------------------------------------------------------------------ #
+        if st.button("📁 Separar e baixar SEM formatação"):
             try:
-                arquivo_bytes.seek(0)
-                df = pd.read_excel(arquivo_bytes)
+                raw_bytes.seek(0)
+                df_full = pd.read_excel(raw_bytes).dropna(axis=1, how="all")
+                df_full = df_full.loc[:, ~df_full.columns.str.contains('^Unnamed')]
 
-                df = df.dropna(axis=1, how="all")
-                df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-                df['temp_normalized'] = df[coluna_separadora].astype(str).str.strip().str.lower()
+                df_full['__key'] = (df_full[coluna_separadora]
+                                    .astype(str)
+                                    .str.strip()
+                                    .str.lower())
 
                 zip_buffer = BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-                    for valor_normalizado in df['temp_normalized'].dropna().unique():
-                        valor_original = df.loc[df['temp_normalized'] == valor_normalizado, coluna_separadora].iloc[0]
-                        df_filtrado = df[df['temp_normalized'] == valor_normalizado].copy()
-                        df_filtrado = df_filtrado.drop(columns=['temp_normalized'])
+                    for chave_norm, g in df_full.groupby('__key'):
+                        if chave_norm == "" or chave_norm.lower() == "nan":
+                            continue
+                        valor_original = g[coluna_separadora].iloc[0]
+                        nome = str(valor_original).strip()
+                        nome = nome.replace("/", "_").replace("\\", "_").replace(":", "-")
+                        if not nome:
+                            nome = "vazio"
 
-                        nome_arquivo = str(valor_original).strip().replace('/', '_').replace('\\', '_').replace(':', '-')
-                        excel_bytes = BytesIO()
-                        df_filtrado.to_excel(excel_bytes, index=False, engine='openpyxl')
-                        excel_bytes.seek(0)
-                        zip_file.writestr(f"{nome_arquivo}.xlsx", excel_bytes.read())
+                        bytes_out = BytesIO()
+                        g.drop(columns='__key').to_excel(bytes_out, index=False)
+                        bytes_out.seek(0)
+                        zip_file.writestr(f"{nome}.xlsx", bytes_out.read())
 
                 zip_buffer.seek(0)
                 st.download_button(
-                    label="📥 Baixar arquivos separados (sem formatação)",
+                    "📥 Baixar arquivos separados SEM formatação (.zip)",
                     data=zip_buffer,
                     file_name="planilhas_sem_formatacao.zip",
                     mime="application/zip"
                 )
-
             except Exception as e:
-                st.error(f"Erro ao processar versão sem formatação: {e}")
+                st.error(f"Erro ao separar sem formatação: {e}")
 
     except Exception as e:
-        st.error(f"Erro ao ler o arquivo: {e}")
+        st.error(f"Não foi possível ler o arquivo: {e}")
