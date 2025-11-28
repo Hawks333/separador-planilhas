@@ -149,3 +149,8 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"Erro ao ler o arquivo: {e}")
+
+# Adiciona informação de versão no sidebar
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Versão 1.0**")
+st.sidebar.markdown("*Atualiza automaticamente*")
